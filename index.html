@@ -287,7 +287,10 @@
                         <div id="topCaptured" class="flex items-center gap-0.5 min-h-[20px] text-lg text-neutral-300 mt-0.5"></div>
                     </div>
                 </div>
-                <div id="topScore" class="text-xs font-semibold px-2.5 py-1 rounded-md bg-neutral-800 text-neutral-400">0</div>
+                <div class="flex items-center gap-3">
+                    <div id="topTimer" class="hidden font-mono text-sm font-bold bg-neutral-800 px-2.5 py-1 rounded-md text-amber-400 border border-neutral-700"><i class="fa-regular fa-clock mr-1 text-xs"></i><span id="topTimerVal">--:--</span></div>
+                    <div id="topScore" class="text-xs font-semibold px-2.5 py-1 rounded-md bg-neutral-800 text-neutral-400">0</div>
+                </div>
             </div>
 
             <!-- The Chess Board -->
@@ -324,7 +327,10 @@
                         <div id="bottomCaptured" class="flex items-center gap-0.5 min-h-[20px] text-lg text-neutral-300 mt-0.5"></div>
                     </div>
                 </div>
-                <div id="bottomScore" class="text-xs font-semibold px-2.5 py-1 rounded-md bg-neutral-800 text-neutral-400">0</div>
+                <div class="flex items-center gap-3">
+                    <div id="bottomTimer" class="hidden font-mono text-sm font-bold bg-neutral-800 px-2.5 py-1 rounded-md text-amber-400 border border-neutral-700"><i class="fa-regular fa-clock mr-1 text-xs"></i><span id="bottomTimerVal">--:--</span></div>
+                    <div id="bottomScore" class="text-xs font-semibold px-2.5 py-1 rounded-md bg-neutral-800 text-neutral-400">0</div>
+                </div>
             </div>
 
         </div>
@@ -347,10 +353,30 @@
 
     <!-- Multiplayer Queue Modal -->
     <div id="queueModal" class="hidden fixed inset-0 bg-neutral-950/90 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-        <div class="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl shadow-2xl max-w-xs w-full text-center">
+        <div class="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center">
             <i id="queueIcon" class="fa-solid fa-spinner fa-spin text-3xl text-indigo-400 mb-3"></i>
-            <h3 class="text-lg font-bold text-white mb-1">Multiplayer</h3>
-            <p id="queueStatus" class="text-sm text-neutral-400 mb-5">Verbinde...</p>
+            <h3 class="text-lg font-bold text-white mb-1">Multiplayer Lobby</h3>
+            <p id="queueStatus" class="text-sm text-neutral-400 mb-4">Verbinde...</p>
+            
+            <!-- Host Time Config (Only shown for Host) -->
+            <div id="hostTimeConfig" class="hidden text-left bg-neutral-950/60 p-4 rounded-xl border border-neutral-800 mb-5 space-y-3">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-neutral-400">Zeiteinstellung (Host)</label>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="mpUseTimer" class="w-4 h-4 accent-indigo-500 cursor-pointer">
+                    <label for="mpUseTimer" class="text-sm text-white cursor-pointer select-none">Mit Zeit spielen</label>
+                </div>
+                <div id="mpTimerSelectContainer" class="hidden space-y-1">
+                    <label class="block text-[11px] text-neutral-400">Bedenkzeit pro Spieler:</label>
+                    <select id="mpTimeChoice" class="w-full bg-neutral-800 border border-neutral-700 text-white text-xs rounded-lg p-2 outline-none cursor-pointer">
+                        <option value="60">1 Minute</option>
+                        <option value="300" selected>5 Minuten</option>
+                        <option value="600">10 Minuten</option>
+                        <option value="1200">20 Minuten</option>
+                        <option value="3600">1 Stunde ?!</option>
+                    </select>
+                </div>
+            </div>
+
             <button id="queueCancelBtn" class="w-full bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-semibold py-2.5 rounded-xl transition">Abbrechen</button>
         </div>
     </div>
@@ -400,6 +426,13 @@
         let activeCampaignLevel = null;
         let myColor = 'w';      // im Multiplayer ggf. 'b'
         let mpConn = null, mpPeer = null, mpActive = false, mpGameOver = false;
+
+        // Multiplayer Timer variables
+        let mpTimedGame = false;
+        let mpTimeSeconds = 300;
+        let whiteTime = 300;
+        let blackTime = 300;
+        let timerInterval = null;
 
         const PIECE_UNICODE = {
             'w': { 'p': '♙', 'r': '♖', 'n': '♘', 'b': '♗', 'q': '♕', 'k': '♔' },
@@ -462,18 +495,20 @@
         const startDifficultyName = document.getElementById('startDifficultyName');
         const startDifficultyValue = document.getElementById('startDifficultyValue');
         const LEVEL_NAMES = ['','Anfänger','Gelegenheitsspieler','Hobbyspieler','Vereinsspieler','Fortgeschritten','Stark','Experte','Meister','Internationaler Meister','Großmeister'];
+
+        const mpUseTimer = document.getElementById('mpUseTimer');
+        const mpTimeChoice = document.getElementById('mpTimeChoice');
+        const mpTimerSelectContainer = document.getElementById('mpTimerSelectContainer');
+        const hostTimeConfig = document.getElementById('hostTimeConfig');
+
         function applyTheme(t) {
             boardContainer.className = `relative w-full aspect-square bg-neutral-900 rounded-2xl shadow-2xl p-2 sm:p-3 border border-neutral-800 ${t}`;
             try { localStorage.setItem('chessTheme', t); } catch (e) {}
         }
 
-        
         const boardContainer = document.getElementById('boardContainer');
         const boardElement = document.getElementById('board');
-        
         const overlayNewGameBtn = document.getElementById('overlayNewGameBtn');
-        
-        
         const headerTitle = document.getElementById('headerTitle');
 
         window.addEventListener('DOMContentLoaded', () => {
@@ -701,6 +736,11 @@
                 startDifficultyName.innerText = `Stärke ${v} – ${LEVEL_NAMES[v]}`;
                 startDifficultyValue.innerText = `${v} / 10`;
             });
+            
+            mpUseTimer.addEventListener('change', () => {
+                mpTimerSelectContainer.classList.toggle('hidden', !mpUseTimer.checked);
+            });
+
             document.getElementById('multiplayerBtn').addEventListener('click', startQueue);
             document.getElementById('queueCancelBtn').addEventListener('click', cancelQueue);
             quickPlayBtn.addEventListener('click', () => {
@@ -717,7 +757,7 @@
             openCampaignBtn.addEventListener('click', () => {
                 leaveMultiplayer();
                 activeCampaignLevel = null;
-                resetGame();   // beim erneuten Betreten startet alles neu
+                resetGame();
                 renderCampaignMap();
                 campaignScreen.classList.remove('hidden');
             });
@@ -753,8 +793,6 @@
 
 
         // ===== MULTIPLAYER (PeerJS) =====
-        // Queue ohne eigenen Server: Wer die Queue-ID als Erster bekommt, wartet.
-        // Alle anderen verbinden sich damit -> Match. Wartender = Weiß.
         const QUEUE_ID = 'schach-queue-v1-slot';
         const queueModal = document.getElementById('queueModal');
         const queueStatus = document.getElementById('queueStatus');
@@ -771,6 +809,7 @@
             try { if (mpConn) mpConn.close(); } catch (e) {}
             try { if (mpPeer) mpPeer.destroy(); } catch (e) {}
             mpConn = null; mpPeer = null;
+            hostTimeConfig.classList.add('hidden');
         }
 
         function startQueue() {
@@ -790,16 +829,19 @@
             const peer = new Peer(QUEUE_ID);
             mpPeer = peer;
             peer.on('open', () => {
-                setQueueMsg('In der Queue – warte auf Gegner...');
+                setQueueMsg('In der Queue – Du bist der Host!');
+                hostTimeConfig.classList.remove('hidden');
             });
             peer.on('connection', (conn) => {
                 if (mpConn) { conn.close(); return; }
                 mpConn = conn;
                 conn.on('open', () => {
                     const lobby = peer;
-                    // Queue-ID sofort freigeben, damit der Nächste wieder warten kann
-                    const gamePeerConn = conn;
-                    beginMultiplayer('w', gamePeerConn);
+                    const timed = mpUseTimer.checked;
+                    const secs = timed ? parseInt(mpTimeChoice.value) : 0;
+                    
+                    conn.send({ type: 'config', timed: timed, seconds: secs });
+                    beginMultiplayer('w', conn, timed, secs);
                     try { lobby.disconnect(); } catch (e) {}
                 });
             });
@@ -815,6 +857,7 @@
         }
 
         function tryAsGuest() {
+            hostTimeConfig.classList.add('hidden');
             setQueueMsg('Gegner gefunden, verbinde...');
             const peer = new Peer();
             mpPeer = peer;
@@ -822,9 +865,16 @@
             peer.on('open', () => {
                 const conn = peer.connect(QUEUE_ID, { reliable: true });
                 mpConn = conn;
-                conn.on('open', () => { connected = true; beginMultiplayer('b', conn); });
+                conn.on('open', () => { 
+                    connected = true; 
+                });
+                conn.on('data', (d) => {
+                    if (d && d.type === 'config') {
+                        beginMultiplayer('b', conn, d.timed, d.seconds);
+                    }
+                });
                 queueTimer = setTimeout(() => {
-                    if (!connected && !mpActive) { closePeer(); tryAsWaiter(); } // Wartender war weg -> selbst warten
+                    if (!connected && !mpActive) { closePeer(); tryAsWaiter(); }
                 }, 5000);
             });
             peer.on('error', (err) => {
@@ -834,7 +884,7 @@
             });
         }
 
-        function beginMultiplayer(color, conn) {
+        function beginMultiplayer(color, conn, timed = false, seconds = 0) {
             clearTimeout(queueTimer);
             mpConn = conn;
             mpActive = true;
@@ -842,7 +892,13 @@
             myColor = color;
             gameMode = 'pvp';
             activeCampaignLevel = null;
-            headerTitle.innerText = 'Multiplayer';
+
+            mpTimedGame = timed;
+            mpTimeSeconds = seconds;
+            whiteTime = seconds;
+            blackTime = seconds;
+
+            headerTitle.innerText = timed ? `Multiplayer (${formatTime(seconds)})` : 'Multiplayer';
             queueModal.classList.add('hidden');
             campaignScreen.classList.add('hidden');
             startScreen.classList.add('hidden');
@@ -856,6 +912,9 @@
                 } else if (d.type === 'resign') {
                     mpGameOver = myColor === 'w' ? 'b' : 'w';
                     handleGameOver();
+                } else if (d.type === 'timeout') {
+                    mpGameOver = d.color;
+                    handleGameOver(true);
                 }
             });
             conn.on('close', () => {
@@ -866,17 +925,91 @@
                     document.getElementById('overlayIcon').classList.add('hidden');
                     ov.classList.remove('hidden');
                     mpGameOver = true;
+                    stopTimer();
                 }
             });
+
+            if (mpTimedGame) {
+                startTimer();
+            }
+        }
+
+        function formatTime(s) {
+            const mins = Math.floor(s / 60);
+            const secs = s % 60;
+            return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+        }
+
+        function startTimer() {
+            stopTimer();
+            if (!mpTimedGame) return;
+            timerInterval = setInterval(() => {
+                if (isGameOverState()) {
+                    stopTimer();
+                    return;
+                }
+                const turn = game.turn();
+                if (turn === 'w') {
+                    whiteTime--;
+                    if (whiteTime <= 0) {
+                        whiteTime = 0;
+                        stopTimer();
+                        mpGameOver = 'w';
+                        if (mpActive && mpConn && mpConn.open) {
+                            try { mpConn.send({ type: 'timeout', color: 'w' }); } catch(e){}
+                        }
+                        handleGameOver(true);
+                    }
+                } else {
+                    blackTime--;
+                    if (blackTime <= 0) {
+                        blackTime = 0;
+                        stopTimer();
+                        mpGameOver = 'b';
+                        if (mpActive && mpConn && mpConn.open) {
+                            try { mpConn.send({ type: 'timeout', color: 'b' }); } catch(e){}
+                        }
+                        handleGameOver(true);
+                    }
+                }
+                updateTimerUI();
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = null;
+        }
+
+        function updateTimerUI() {
+            const topTimer = document.getElementById('topTimer');
+            const bottomTimer = document.getElementById('bottomTimer');
+            const topTimerVal = document.getElementById('topTimerVal');
+            const bottomTimerVal = document.getElementById('bottomTimerVal');
+
+            if (!mpTimedGame) {
+                topTimer.classList.add('hidden');
+                bottomTimer.classList.add('hidden');
+                return;
+            }
+
+            topTimer.classList.remove('hidden');
+            bottomTimer.classList.remove('hidden');
+
+            const fl = myColor === 'b';
+            topTimerVal.innerText = formatTime(fl ? whiteTime : blackTime);
+            bottomTimerVal.innerText = formatTime(fl ? blackTime : whiteTime);
         }
 
         function leaveMultiplayer() {
+            stopTimer();
             if (mpActive && mpConn && mpConn.open && !game.game_over() && !mpGameOver) {
                 try { mpConn.send({ type: 'resign' }); } catch (e) {}
             }
             closePeer();
             mpActive = false;
             mpGameOver = false;
+            mpTimedGame = false;
             myColor = 'w';
             queueModal.classList.add('hidden');
         }
@@ -895,7 +1028,6 @@
                     resetGame();
                 }
             });
-
         }
 
         function initBoard() {
@@ -1106,14 +1238,15 @@
             return game.game_over() || mpGameOver;
         }
 
-        function handleGameOver() {
+        function handleGameOver(isTimeout = false) {
+            stopTimer();
             const overlay = document.getElementById('gameOverlay');
             const overlayTitle = document.getElementById('overlayTitle');
             const overlayIcon = document.getElementById('overlayIcon');
 
             let loserColor = null;
             let isDraw = false;
-            if (mpGameOver && mpGameOver !== true) loserColor = mpGameOver; // 'w'/'b' hat aufgegeben
+            if (mpGameOver && mpGameOver !== true) loserColor = mpGameOver;
             else if (game.in_checkmate()) loserColor = game.turn();
             else isDraw = true;
 
@@ -1143,8 +1276,8 @@
 
             if (isAiWinner) {
                 overlayIcon.classList.add('hidden');
-                overlayTitle.innerText = mpActive ? "NIEDERLAGE" : "GAME OVER";
-                overlayTitle.className = "text-5xl font-black text-red-600 mb-6 tracking-widest uppercase drop-shadow-[0_0_25px_rgba(220,38,38,0.9)]";
+                overlayTitle.innerText = isTimeout ? "ZEIT ABGELAUFEN!" : (mpActive ? "NIEDERLAGE" : "GAME OVER");
+                overlayTitle.className = "text-4xl font-black text-red-600 mb-6 tracking-widest uppercase drop-shadow-[0_0_25px_rgba(220,38,38,0.9)]";
             } else {
                 overlayIcon.classList.remove('hidden');
                 
@@ -1163,7 +1296,7 @@
                     if (Date.now() < end) requestAnimationFrame(frame);
                 }());
 
-                overlayTitle.innerText = "SIEG!";
+                overlayTitle.innerText = isTimeout ? "GEWONNEN (ZEIT)!" : "SIEG!";
                 overlayIcon.innerHTML = '<i class="fa-solid fa-trophy text-yellow-400"></i>';
             }
         }
@@ -1183,7 +1316,6 @@
         const MATE = 100000;
         let aiDeadline = 0, aiNodes = 0;
 
-        // Positionsbonus (aus Weiß-Sicht, Index = Reihe 0 = 8. Reihe)
         const PST = {
             p: [0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10, 5,5,10,25,25,10,5,5, 0,0,0,20,20,0,0,0, 5,-5,-10,0,0,-10,-5,5, 5,10,10,-20,-20,10,10,5, 0,0,0,0,0,0,0,0],
             n: [-50,-40,-30,-30,-30,-30,-40,-50, -40,-20,0,0,0,0,-20,-40, -30,0,10,15,15,10,0,-30, -30,5,15,20,20,15,5,-30, -30,0,15,20,20,15,0,-30, -30,5,10,15,15,10,5,-30, -40,-20,0,5,5,0,-20,-40, -50,-40,-30,-30,-30,-30,-40,-50],
@@ -1193,7 +1325,6 @@
             k: [-30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -20,-30,-30,-40,-40,-30,-30,-20, -10,-20,-20,-20,-20,-20,-20,-10, 20,20,0,0,0,0,20,20, 20,30,10,0,0,10,30,20]
         };
 
-        // Bewertung aus Sicht des Spielers am Zug
         function evalSide() {
             const b = game.board();
             let score = 0;
@@ -1258,7 +1389,6 @@
             return best;
         }
 
-        // Bewertet alle Wurzelzüge (volle Fenster -> exakte Werte für "menschliche" Fehler)
         function scoreRootMoves(moves, depth) {
             aiDeadline = 0;
             return moves.map(m => {
@@ -1269,7 +1399,6 @@
             });
         }
 
-        // Iterative Vertiefung mit Zeitlimit (starke Stufen)
         function searchTimed(moves, maxDepth, ms) {
             orderMoves(moves);
             let best = moves[0];
@@ -1286,13 +1415,12 @@
                         if (sc > alpha) { alpha = sc; iterBest = m; }
                     }
                     best = iterBest || best;
-                    // gefundenen besten Zug zuerst probieren
                     moves.splice(moves.indexOf(best), 1); moves.unshift(best);
-                    if (alpha > MATE - 100) break; // Matt gefunden
+                    if (alpha > MATE - 100) break;
                 }
             } catch (e) {
                 if (e !== 'timeout') throw e;
-                while (game.history().length > baseLen) game.undo(); // Suche abgebrochen: Brett zurücksetzen
+                while (game.history().length > baseLen) game.undo();
             }
             aiDeadline = 0;
             return best;
@@ -1318,7 +1446,6 @@
         function makeAIMove() {
             if (isGameOverState() || mpActive || game.turn() === playerColor) return;
             if (game.moves().length === 0) { handleGameOver(); return; }
-            // kurz Platz für die UI, falls die KI lange rechnet
             let mv = null;
             try { mv = pickAIMove(); } catch (e) { console.error(e); mv = game.moves({ verbose: true })[0]; }
             if (mv) executeMove(mv); else handleGameOver();
@@ -1329,6 +1456,7 @@
             updateCapturedPiecesAndScore();
             updateMoveHistory();
             updatePlayerBadges();
+            updateTimerUI();
         }
 
         function updatePlayerBadges() {
@@ -1435,6 +1563,7 @@
         }
 
         function resetGame() {
+            stopTimer();
             if (!mpActive) { mpGameOver = false; }
             game.reset();
             selectedSquare = null;
